@@ -142,7 +142,7 @@ def draw_lc(name, z, r_source):
                 BB_start = BB_end
             
             #define burst
-            average, true_dsip = burst_def.burst_def(edgesBB, fluxBB)
+            average, true_disp = burst_def.burst_def(edgesBB, fluxBB)
             #draw threshold
             limit = average + 3 * true_disp
             ax2.plot([t[0], t[-1]], [limit, limit], color = '#da1ba5', zorder = 9)
