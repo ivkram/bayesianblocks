@@ -9,22 +9,37 @@ from matplotlib import rcParams
 rcParams.update({'font.size': 22})
 
 
-def block_av(lc_, edges):
+def block_av(flux, epoch_, edges_bb_):
     """
-    :param lc_: original light curve
-    :param edges: edges of bayesian blocks
-    :return: array bayesian blocks fluxes
+    :param flux: initial fluxes
+    :param epoch_: initial epochs
+    :param edges_bb_: edges of bayesian blocks
+    :return: array of BB fluxes as a result of averaging fluxes in each block
     """
-    block_flux = np.zeros(len(edges) - 1)
+    block_flux = np.zeros(len(edges_bb_) - 1)
     block_start = block_end = 0
-    for i in range(1, len(edges)):
-        while times[block_end] < edgesBB[i]:
+    for j in range(1, len(edges_bb_)):
+        while epoch_[block_end] < edges_bb_[j]:
             block_end += 1
-        if i == len(edges) - 1:
+        if j == len(edges_bb_) - 1:
             block_end += 1
-        block_flux[i - 1] = np.average(lc_.loc[block_start:(block_end - 1), 'flux'])
+        block_flux[j - 1] = np.average(flux[block_start:block_end])
         block_start = block_end
     return block_flux
+
+
+def bayesian_plot(source_name_, params_, flux, flux_err, epoch_, flux_bb_, edges_bb_):
+    plt.figure(figsize=(16, 9))
+    plt.title(source_name_)
+    plt.errorbar(epoch_, flux * 1E8, yerr=flux_err * 1E8, label='original LC', fmt='o',
+                 elinewidth=1, markersize=2, alpha=0.3)
+    plt.step(edges_bb_, np.append(flux_bb_, flux_bb_[-1]) * 1E8, where='post',
+             label='bayesian blocks, ' + r'p0=' + str(p0), linewidth=2)
+    plt.legend()
+    plt.xlabel('Epoch (yr)')
+    plt.ylabel("Photon flux (10$^{-8}$ ph cm$^{-2}$ s$^{-1}$)")
+    plt.savefig((source_name_ + params_ + '.pdf'))
+    plt.close()
 
 
 if __name__ == '__main__':
@@ -51,16 +66,16 @@ if __name__ == '__main__':
     plot = input('Draw plot? (y/n): ')
     print('\n')
 
-    title = '_p0_' + str(p0)
-    title += '_ts' + str(ts)
-    title += '_npr' + str(n_pr)
+    params = '_p0_' + str(p0)
+    params += '_ts' + str(ts)
+    params += '_npr' + str(n_pr)
 
     p = Path('.')
-    for lc_file_ext in list(p.glob('*.txt')):
-        lc_file = str(lc_file_ext.parts[-1])[4:16]
-        print(lc_file)
+    for lc_file in list(p.glob('*.txt')):
+        source_name = str(lc_file.parts[-1])[4:16]
+        print(source_name)
         try:
-            lc = pd.read_csv(lc_file_ext,
+            lc = pd.read_csv(lc_file,
                              usecols=[1, 2, 3, 4, 5, 7],
                              names=['start', 'end', 'TS', 'flux', 'flux_err', 'n_pred'],
                              dtype=np.float64,
@@ -68,7 +83,7 @@ if __name__ == '__main__':
                              skiprows=1)
         except TypeError:
             print('Something went wrong while reading input file')
-            exit()
+            quit()
 
         # apply TS filter
         lc = lc[lc.TS > ts].reset_index(drop=True)
@@ -77,30 +92,25 @@ if __name__ == '__main__':
         lc = lc[lc.n_pred > n_pr].reset_index(drop=True)
 
         # bayesian blocks algorithm
-        times = (lc.start + lc.end) / 2
-        edgesBB = bayesian_blocks(times, lc.flux, lc.flux_err, fitness='measures', p0=p0)
-        fluxBB = block_av(lc, edgesBB)
+        epoch = (lc.start + lc.end) / 2
+        edges_bb = bayesian_blocks(epoch, lc.flux, lc.flux_err, fitness='measures', p0=p0)
+        flux_bb = block_av(lc.flux, epoch, edges_bb)
 
         # write to file
-        with open(lc_file + title, 'w', newline='') as bb:
+        with open(source_name + params, 'w', newline='') as bb:
             bb_writer = csv.writer(bb, delimiter=',')
-            for i in range(len(fluxBB)):
-                bb_writer.writerow([edgesBB[i], edgesBB[i + 1], fluxBB[i]])
+            for i in range(len(flux_bb)):
+                bb_writer.writerow([edges_bb[i], edges_bb[i + 1], flux_bb[i]])
 
         # draw plot
         if plot == 'y' or plot == '':
-            plt.figure(figsize=(16, 9))
-            times_yr = Time((times - 239557417) / 86400 + 54682, format='mjd').decimalyear
-            edgesBB_yr = Time((edgesBB - 239557417) / 86400 + 54682, format='mjd').decimalyear
-            plt.errorbar(times_yr, lc.flux * 1E8, yerr=lc.flux_err * 1E8, label='original LC', fmt='o',
-                         elinewidth=1, markersize=2, alpha=0.3)
-            plt.title(lc_file)
-            plt.step(edgesBB_yr, np.append(fluxBB, fluxBB[-1]) * 1E8, where='post',
-                     label='bayesian blocks, ' + r'p0=' + str(p0), linewidth=2)
-            plt.legend()
-            plt.xlabel('Epoch (yr)')
-            plt.ylabel("Photon flux (10$^{-8}$ ph cm$^{-2}$ s$^{-1}$)")
-            plt.savefig((lc_file + title + '.pdf'))
-            plt.close()
+            # rescale epochs from mjd to decimal year
+            epoch_dec = Time((epoch - 239557417) / 86400 + 54682, format='mjd').decimalyear
+            edges_bb_dec = Time((edges_bb - 239557417) / 86400 + 54682, format='mjd').decimalyear
+
+            # rescale flux
+            lc.flux, lc.flux_err, flux_bb = map(lambda x: x * 1E8, (lc.flux, lc.flux_err, flux_bb))
+
+            bayesian_plot(source_name, params, lc.flux, lc.flux_err, epoch_dec, flux_bb, edges_bb_dec)
 
     print('Success\n')
