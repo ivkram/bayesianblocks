@@ -71,7 +71,7 @@ if __name__ == '__main__':
     params += '_npr' + str(n_pr)
 
     p = Path('.')
-    for lc_file in list(p.glob('*.txt')):
+    for lc_file in sorted(p.glob('*.txt')):
         source_name = str(lc_file.parts[-1])[4:16]
         print(source_name)
         try:
